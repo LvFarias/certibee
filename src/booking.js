@@ -5,6 +5,8 @@ const api = require('./api');
 const utils = require('./utils');
 
 const PLANT_UUID = process.env.PLANT_UUID;
+const START_HOUR = process.env.START_HOUR;
+const END_HOUR = process.env.END_HOUR;
 
 async function getBookings() {
 	const token = await db.getValidToken();
@@ -31,8 +33,8 @@ async function doBooking(date, uuid) {
 			end_date,
 			start_date,
 			reason: '',
-			end_hour: '18:00',
-			start_hour: '10:00',
+			end_hour: END_HOUR,
+			start_hour: START_HOUR,
 			booking_uuid_identifier: null,
 		},
 		token,
@@ -48,11 +50,7 @@ async function cancelBooking(uuid) {
 
 async function listFreeTables(date) {
 	const token = await db.getValidToken();
-	const datetime =
-		encodeURIComponent(utils.dateFormatFromRequest(date)) +
-		'%3B10:00%3B18:00';
 	const queryParams = {
-		datetime,
 		place_uuid: '',
 		state_uuid: '',
 		type: 'workspace',
@@ -61,10 +59,14 @@ async function listFreeTables(date) {
 		is_service_booking: false,
 		is_by_pass_restriction: false,
 		search: 'is_my_allocated:%3Bsector_uuid:',
+		datetime: `${utils.dateFormatFromRequest(date, true)}%3B${START_HOUR}%3B${END_HOUR}`,
 	};
+	const params = Object.entries(queryParams)
+		.map((p) => p.join('='))
+		.join('&');
 
 	const response = await api.get(
-		`/plant/${PLANT_UUID}/places?${datetime.join('&')}`,
+		`plant/${PLANT_UUID}/places?${params}`,
 		token,
 	);
 	const tables = response.data || [];

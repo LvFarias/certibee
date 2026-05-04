@@ -1,5 +1,7 @@
 const axios = require('axios');
-const puppeteer = require('puppeteer');
+const puppeteer = require('puppeteer-extra');
+const StealthPlugin = require('puppeteer-extra-plugin-stealth');
+puppeteer.use(StealthPlugin());
 const { TOTP } = require('totp-generator');
 
 const API_URL = 'https://api.deskbee.io/api';
@@ -32,6 +34,7 @@ async function get(url, token) {
 		});
 		return response.data;
 	} catch (error) {
+		console.error(error);
 		return { error: error.response?.status || 500, message: error.message };
 	}
 }
@@ -48,11 +51,20 @@ async function deleteRequest(url, token) {
 }
 
 async function getAuthToken() {
+	console.log('Iniciando processo de autenticação SSO...');
 	const browser = await puppeteer.launch({
 		headless: true,
-		args: ['--no-sandbox', '--disable-setuid-sandbox'],
+		args: [
+			'--no-sandbox',
+			'--disable-setuid-sandbox',
+			'--disable-blink-features=AutomationControlled',
+			'--window-size=1920,1080',
+		],
 	});
 	const page = await browser.newPage();
+	await page.setUserAgent(
+		'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+	);
 	let token = null;
 
 	page.on('request', (request) => {
@@ -64,12 +76,13 @@ async function getAuthToken() {
 			token = headers['authorization'].split(' ')[1];
 		}
 	});
-
+	
+	console.log('Carregando página de login do Deskbee...');
 	await page.goto('https://certisign.deskbee.app/login', {
 		waitUntil: 'networkidle2',
 	});
 
-	// Localiza e clica no botão de SSO pelo texto
+	console.log('Procurando e clicando no botão de SSO...');
 	await page.evaluate(() => {
 		const elements = Array.from(document.querySelectorAll('button, a'));
 		const ssoButton = elements.find((el) =>
@@ -78,15 +91,15 @@ async function getAuthToken() {
 		if (ssoButton) ssoButton.click();
 	});
 
-	// Aguarda o redirecionamento para a Microsoft
+	console.log('Redirecionando para a Microsoft e iniciando fluxo de autenticação...');
 	await page.waitForNavigation({ waitUntil: 'networkidle2' });
 
-	// Fluxo Microsoft: Email
+	console.log('Preenchendo Email...');
 	await page.waitForSelector('input[type="email"]', { visible: true });
 	await page.type('input[type="email"]', process.env.SSO_EMAIL);
 	await page.click('input[type="submit"]');
 
-	// Fluxo Microsoft: Senha
+	console.log('Preenchendo Senha...');
 	await page.waitForSelector('input[type="password"]', { visible: true });
 	// Pausa necessária devido às animações da página da Microsoft
 	await new Promise((r) => setTimeout(r, 1500));
@@ -94,30 +107,30 @@ async function getAuthToken() {
 	await page.click('input[type="submit"]');
 
 	// Aguarda o campo de 2FA da Microsoft carregar
-	// Os seletores mais comuns da Microsoft são 'input[name="otc"]' ou 'input[id="idTxtBx_SAOTCC_OTC"]'
 	await page.waitForSelector('input[name="otc"]', { visible: true });
 
-	// Gera o código 2FA atual de 6 dígitos
+	console.log('Gerando código TOTP para 2FA...');
 	const token2FA = (await TOTP.generate(process.env.SECRET_2FA_KEY)).otp;
 
-	// Insere o código e prossegue
+	console.log('Inserindo código 2FA e finalizando autenticação...');
 	await page.type('input[name="otc"]', token2FA);
-	await page.click('input[type="submit"]'); // Ou o ID específico do botão de confirmar 2FA
+	await page.click('input[type="submit"]');
 
 	// Fluxo Microsoft: Manter conectado? (Ignora erro se a tela não aparecer)
 	try {
 		await page.waitForSelector('input[id="idSIButton9"]', {
 			visible: true,
-			timeout: 5000,
+			timeout: 3000,
 		});
 		await page.click('input[id="idSIButton9"]');
 	} catch (e) {}
 
+	console.log('Autenticação concluída, aguardando redirecionamento para o Deskbee...');
 	// Aguarda o retorno ao Deskbee e a interceptação do token
-	await page.waitForFunction(() => true, { timeout: 10000 });
-	// Após estabilizar o login, garante a captura antes de fechar
-	await new Promise((r) => setTimeout(r, 5000));
-
+	while (!token) {
+		await new Promise((r) => setTimeout(r, 500));
+	}
+	console.log('Fechando navegador...');
 	await browser.close();
 	return token;
 }

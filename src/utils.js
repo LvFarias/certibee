@@ -4,10 +4,11 @@ function dateFormatFromMsg(data) {
 	return `${data.getDate().toString().padStart(2, '0')}/${(data.getMonth() + 1).toString().padStart(2, '0')} (_${dateNames[data.getDay()]}_)`;
 }
 
-function dateFormatFromRequest(date) {
+function dateFormatFromRequest(date, encoded = false) {
     const dia = String(date.getDate()).padStart(2, '0');
 	const mes = String(date.getMonth() + 1).padStart(2, '0');
 	const ano = date.getFullYear();
+    if (encoded) return `${dia}%2F${mes}%2F${ano}`;
 	return `${dia}/${mes}/${ano}`;
 }
 
@@ -20,7 +21,7 @@ function getFutureDate(additionalDays) {
 function getNextWorkDays() {
     const today = new Date();
     const workDays = [];
-    let addedDays = 0;
+    let addedDays = 1;
 
     while (workDays.length < 5) {
         const nextDate = new Date(today);
